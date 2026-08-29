@@ -7,3 +7,4 @@ env/
 .vscode/
 .idea/
 cp_env/
+.DS_Store
