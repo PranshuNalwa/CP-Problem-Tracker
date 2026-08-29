@@ -8,3 +8,4 @@ env/
 .idea/
 cp_env/
 .DS_Store
+instance/
