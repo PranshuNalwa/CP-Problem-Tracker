@@ -1,4 +1,4 @@
-from flask import Flask ,request
+from flask import Flask ,request,jsonify
 from functools import wraps
 from flask_sqlalchemy import SQLAlchemy
 
@@ -94,6 +94,25 @@ def log_problem(id):
     db.session.commit()
     return {"title" : problem.title,"tag": problem.tag, "rating": problem.rating,"solved": problem.solved}, 201
 
+@app.route('/users/<int:id>/problems',methods=['GET'])
+@login_required
+def view_all_problem(id):
+    statement=db.select(PROBLEMS)
+    problems=db.session.scalars(statement).all()
+    data=[]
+    if problems == []:
+        return {"message":"No problem is added"}, 200
+    for problem in problems:
+        data.append({
+            "id":problem.id,
+            "title":problem.title,
+            "rating":problem.rating,
+            "tag":problem.tag,
+            "solved":problem.solved
+        })
+    return data, 200
+
+
 @app.route('/problems/<int:id>',methods=['PUT'])
 @login_required
 def update_problem(id):
@@ -106,3 +125,20 @@ def update_problem(id):
         db.session.commit()
         return {"message":"succesfully updated"}, 200
     return {"error":"problem doesnt exist"}, 404
+
+@app.route('/problems/<int:id>',methods=['GET'])
+@login_required
+def view_single_problem(id):
+    statement=db.select(PROBLEMS).filter_by(id=id)
+    problem=db.session.execute(statement).scalar_one_or_none()
+    data=[]
+    if problem is None:
+        return {"error":"Problem Doesnt exist"}, 404
+    return jsonify({
+            "id":problem.id,
+            "title":problem.title,
+            "rating":problem.rating,
+            "tag":problem.tag,
+            "solved":problem.solved
+    })
+    
