@@ -53,7 +53,7 @@ def signin():
         db.session.commit()
         return {"Token": SESSION_TOKEN} , 200
     else:
-        return {"username already exist": check.username}
+        return {"error": "user already exist"}, 409
 
 @app.route('/login',methods=['POST'])
 def login():
@@ -94,25 +94,6 @@ def log_problem(id):
     db.session.commit()
     return {"title" : problem.title,"tag": problem.tag, "rating": problem.rating,"solved": problem.solved}, 201
 
-@app.route('/users/<int:id>/problems',methods=['GET'])
-@login_required
-def view_all_problem(id):
-    statement=db.select(PROBLEMS)
-    problems=db.session.scalars(statement).all()
-    data=[]
-    if problems == []:
-        return {"message":"No problem is given"}, 204
-    for problem in problems:
-        data.append({
-            "id":problem.id,
-            "title":problem.title,
-            "rating":problem.rating,
-            "tag":problem.tag,
-            "solved":problem.solved
-        })
-    return data, 200
-
-
 @app.route('/problems/<int:id>',methods=['PUT'])
 @login_required
 def update_problem(id):
@@ -131,7 +112,6 @@ def update_problem(id):
 def view_single_problem(id):
     statement=db.select(PROBLEMS).filter_by(id=id)
     problem=db.session.execute(statement).scalar_one_or_none()
-    data=[]
     if problem is None:
         return {"error":"Problem Doesnt exist"}, 404
     return jsonify({
@@ -148,6 +128,8 @@ def mark_solved(id):
     data=request.get_json()
     statement=db.select(PROBLEMS).filter_by(id=id)
     problem=db.session.execute(statement).scalar_one_or_none()
+    if problem is None:
+        return {"error":"id doesnt exist"},404 
     if data['solved'] == problem.solved:
         return{"message":"there were no changes"},204
     solved=data['solved']
@@ -174,4 +156,46 @@ def delete_problem(id):
     db.session.delete(problem)
     db.session.commit()
     return {"message":"problem delete succesfully"},200
+
+@app.route('/users/<int:id>/problems',methods=['GET'])
+@login_required
+def filtering_and_view_all_problems(id):
+    min_rating= int(request.args.get('minrating'))
+    max_rating= int(request.args.get('maxrating'))
+    tag= request.args.get('tag')
+    status= request.args.get('status')
+    statement=db.select(PROBLEMS).filter_by(user_id=id)
+    if tag is not None:
+        statement=statement.filter_by(tag=tag)
+    if status is not None:
+        statement=statement.filter_by(solved=(status=='solved'))
+    if min_rating is not None:
+        statement=statement.where(PROBLEMS.rating>=min_rating)
+    if max_rating is not None:
+        statement=statement.where(PROBLEMS.rating<=max_rating)
+    problems=db.session.execute(statement).scalars().all()
+    if not problems:
+        return {"message": "no problem exist of this tag"} ,204
+    data=[]
+    for problem in problems:
+        data.append({
+            "id":problem.id,
+            "title":problem.title,
+            "rating":problem.rating,
+            "tag":problem.tag,
+            "solved":problem.solved
+        })
+    return data, 200
+
+@app.route('/users/<int:id>/stats',methods=['GET'])
+@login_required
+def stats(id):
+    statement=db.select(PROBLEMS.rating,db.func.count(PROBLEMS.id).label('total'),
+                        db.func.sum(db.case((PROBLEMS.solved == True, 1), else_=0)).label('solved')
+                        ).where(PROBLEMS.user_id==id).group_by(PROBLEMS.rating)
+    results=db.session.execute(statement).all()
+    stats = {}
+    for row in results:
+        stats[str(row.rating)] = {"total": row.total, "solved": row.solved}
     
+    return stats, 200
