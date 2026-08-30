@@ -101,7 +101,7 @@ def view_all_problem(id):
     problems=db.session.scalars(statement).all()
     data=[]
     if problems == []:
-        return {"message":"No problem is added"}, 200
+        return {"message":"No problem is given"}, 204
     for problem in problems:
         data.append({
             "id":problem.id,
@@ -140,5 +140,38 @@ def view_single_problem(id):
             "rating":problem.rating,
             "tag":problem.tag,
             "solved":problem.solved
-    })
+    }),200
+
+@app.route('/problems/<int:id>',methods=['PATCH'])
+@login_required
+def mark_solved(id):
+    data=request.get_json()
+    statement=db.select(PROBLEMS).filter_by(id=id)
+    problem=db.session.execute(statement).scalar_one_or_none()
+    if data['solved'] == problem.solved:
+        return{"message":"there were no changes"},204
+    solved=data['solved']
+    is_solved=False
+    if solved:
+        is_solved=True
+    problem.solved=is_solved
+    db.session.commit()
+    return jsonify({
+                "id":problem.id,
+                "title":problem.title,
+                "rating":problem.rating,
+                "tag":problem.tag,
+                "solved":problem.solved
+        }),200
+
+@app.route('/problems/<int:id>',methods=['DELETE'])
+@login_required
+def delete_problem(id):
+    statement=db.select(PROBLEMS).filter_by(id=id)
+    problem=db.session.execute(statement).scalar_one_or_none()
+    if problem is None:
+        return {"error":"invalid id"},404
+    db.session.delete(problem)
+    db.session.commit()
+    return {"message":"problem delete succesfully"},200
     
