@@ -1,7 +1,7 @@
 from flask import Flask ,request,jsonify
 from functools import wraps
 from flask_sqlalchemy import SQLAlchemy
-from flask_jwt_extended import create_access_token,get_jwt_identity,jwt_required,JWTManager
+from flask_jwt_extended import create_access_token,get_jwt_identity,jwt_required,JWTManager,get_jwt
 from werkzeug.security import check_password_hash,generate_password_hash
 
 app=Flask(__name__)
@@ -27,20 +27,24 @@ class PROBLEMS(db.Model):
     tag=db.Column(db.String(20), nullable=False)
     solved=db.Column(db.Boolean, nullable=False)
 
-# class TOKEN_BLOCKLIST(db.Model):
-#     id=db.Column(db.Integer,primary_key=True)
-#     jti=db.Column(db.String(36),nullable=False,index=True)
-#     created_at = db.Column(db.DateTime, nullable=False)
+class TOKEN_BLOCKLIST(db.Model):
+    id=db.Column(db.Integer,primary_key=True)
+    jti=db.Column(db.String(36),nullable=False,index=True)
 
 with app.app_context():
     db.create_all()
 
-# @jwt.token_in_blocklist_loader
-# def check_if_token_revoked(jwt_header, jwt_payload: dict) -> bool:
-#     jti = jwt_payload["jti"]
-#     token = db.session.query(TOKEN_BLOCKLIST.id).filter_by(jti=jti).scalar()
+@jwt.token_in_blocklist_loader
+def check_if_token_in_blocklist(jwt_header, jwt_payload) :
+    jti = jwt_payload["jti"]
+    statement=db.select(TOKEN_BLOCKLIST).filter_by(jti=jti)
+    token = db.session.execute(statement).scalar_one_or_none()
+    return token is not None
 
-#     return token is not None
+@jwt.revoked_token_loader
+def revoked_token_callback(jwt_header, jwt_payload):
+    return {"Error":"User is logged out"},400
+
 
 @app.route('/')
 @app.route('/signin',methods=['POST'])
@@ -84,6 +88,10 @@ def logout():
     data=request.get_json()
     check=data["logout"]
     if check=='yes':
+        jti=get_jwt()['jti']
+        expire_token=TOKEN_BLOCKLIST(jti=jti)
+        db.session.add(expire_token)
+        db.session.commit()
         return {"message":"logout succesful"}, 200
     return {"login not done"}
 
