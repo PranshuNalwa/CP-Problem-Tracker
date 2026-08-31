@@ -2,6 +2,7 @@ from flask import Flask ,request,jsonify
 from functools import wraps
 from flask_sqlalchemy import SQLAlchemy
 from flask_jwt_extended import create_access_token,get_jwt_identity,jwt_required,JWTManager
+from werkzeug.security import check_password_hash,generate_password_hash
 
 app=Flask(__name__)
 db= SQLAlchemy()
@@ -12,7 +13,6 @@ app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///project.db"
 
 db.init_app(app)
 
-#TODO: update the password security soon!
 class USER(db.Model):
     id=db.Column(db.Integer,primary_key=True)
     username = db.Column(db.String(20), unique=True, nullable=False)
@@ -48,10 +48,11 @@ def signin():
     data=request.get_json()
     username=data["username"]
     password=data["password"]
+    hash_password=generate_password_hash(password,method='pbkdf2:sha256')
     statement=db.select(USER).filter_by(username=username)
     check=db.session.execute(statement).scalar_one_or_none()
     if check is None:
-        user=USER(username=username,password=password)
+        user=USER(username=username,password=hash_password)
         db.session.add(user)
         db.session.commit()
         access_token=create_access_token(identity=str(user.id))
@@ -70,7 +71,7 @@ def login():
     # if int(current_user_id) != user.user_id:
     #     return {"error":"Unauthorized access"},403
     if user is not None:
-        if user.password==password:
+        if check_password_hash(user.password,password):
             access_token=create_access_token(identity=str(user.id))
             return {"Token": access_token} , 200
     return {"error":"password or username wrong"}, 401
