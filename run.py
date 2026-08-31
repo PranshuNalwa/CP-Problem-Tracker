@@ -1,14 +1,14 @@
 from flask import Flask ,request,jsonify
 from functools import wraps
 from flask_sqlalchemy import SQLAlchemy
+from flask_jwt_extended import create_access_token,get_jwt_identity,jwt_required,JWTManager
 
 app=Flask(__name__)
 db= SQLAlchemy()
+jwt=JWTManager(app)
+
 app.config['SECRET_KEY']='asdfghjklouytdsxcvbnjkitrdxcvbnm'
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///project.db"
-
-#TODO: add jwt than using manual token
-SESSION_TOKEN = "abcdefgh"
 
 db.init_app(app)
 
@@ -27,17 +27,20 @@ class PROBLEMS(db.Model):
     tag=db.Column(db.String(20), nullable=False)
     solved=db.Column(db.Boolean, nullable=False)
 
+# class TOKEN_BLOCKLIST(db.Model):
+#     id=db.Column(db.Integer,primary_key=True)
+#     jti=db.Column(db.String(36),nullable=False,index=True)
+#     created_at = db.Column(db.DateTime, nullable=False)
+
 with app.app_context():
     db.create_all()
 
-def login_required(f):
-    @wraps(f)
-    def decorator_function(*args,**kwargs):
-        auth_header = request.headers.get('Authorization')
-        if auth_header != f"Bearer {SESSION_TOKEN}":
-            return {"error": "unauthorized"}, 401
-        return f(*args,**kwargs)
-    return decorator_function
+# @jwt.token_in_blocklist_loader
+# def check_if_token_revoked(jwt_header, jwt_payload: dict) -> bool:
+#     jti = jwt_payload["jti"]
+#     token = db.session.query(TOKEN_BLOCKLIST.id).filter_by(jti=jti).scalar()
+
+#     return token is not None
 
 @app.route('/')
 @app.route('/signin',methods=['POST'])
@@ -51,7 +54,8 @@ def signin():
         user=USER(username=username,password=password)
         db.session.add(user)
         db.session.commit()
-        return {"Token": SESSION_TOKEN} , 200
+        access_token=create_access_token(identity=str(user.id))
+        return {"Token": access_token} , 200
     else:
         return {"error": "user already exist"}, 409
 
@@ -62,15 +66,19 @@ def login():
     password=data["password"]
     statement=db.select(USER).filter_by(username=username)
     user=db.session.execute(statement).scalar_one_or_none()
+    # current_user_id=get_jwt_identity()
+    # if int(current_user_id) != user.user_id:
+    #     return {"error":"Unauthorized access"},403
     if user is not None:
         if user.password==password:
-            return {"Token": SESSION_TOKEN} , 200
+            access_token=create_access_token(identity=str(user.id))
+            return {"Token": access_token} , 200
     return {"error":"password or username wrong"}, 401
 
 #kinda broken right now , fix later after studying auth 
 #login_required works!!
 @app.route('/logout',methods=['POST'])
-@login_required
+@jwt_required()
 def logout():
     data=request.get_json()
     check=data["logout"]
@@ -79,7 +87,7 @@ def logout():
     return {"login not done"}
 
 @app.route('/users/<int:id>/problems',methods=['POST'])
-@login_required
+@jwt_required()
 def log_problem(id):
     data=request.get_json()
     title=data["title"]
@@ -90,16 +98,22 @@ def log_problem(id):
     if solved:
         is_solved=True
     problem=PROBLEMS(user_id=id,title=title,rating=rating,tag=tag,solved=is_solved)
+    current_user_id=get_jwt_identity()
+    if int(current_user_id) != id:
+        return {"error":"Unauthorized access"},403   
     db.session.add(problem)
     db.session.commit()
     return {"title" : problem.title,"tag": problem.tag, "rating": problem.rating,"solved": problem.solved}, 201
 
 @app.route('/problems/<int:id>',methods=['PUT'])
-@login_required
+@jwt_required()
 def update_problem(id):
     data=request.get_json()
     statement=db.select(PROBLEMS).filter_by(id=id)
     problem=db.session.execute(statement).scalar_one_or_none()
+    current_user_id=get_jwt_identity()
+    if int(current_user_id) != problem.user_id:
+        return {"error":"Unauthorized access"},403
     if problem is not None:
         for x in data:
             setattr(problem, x, data[x])
@@ -108,10 +122,13 @@ def update_problem(id):
     return {"error":"problem doesnt exist"}, 404
 
 @app.route('/problems/<int:id>',methods=['GET'])
-@login_required
+@jwt_required()
 def view_single_problem(id):
     statement=db.select(PROBLEMS).filter_by(id=id)
     problem=db.session.execute(statement).scalar_one_or_none()
+    current_user_id=get_jwt_identity()
+    if int(current_user_id) != problem.user_id:
+        return {"error":"Unauthorized access"},403
     if problem is None:
         return {"error":"Problem Doesnt exist"}, 404
     return jsonify({
@@ -123,11 +140,14 @@ def view_single_problem(id):
     }),200
 
 @app.route('/problems/<int:id>',methods=['PATCH'])
-@login_required
+@jwt_required()
 def mark_solved(id):
     data=request.get_json()
     statement=db.select(PROBLEMS).filter_by(id=id)
     problem=db.session.execute(statement).scalar_one_or_none()
+    current_user_id=get_jwt_identity()
+    if int(current_user_id) != problem.user_id:
+        return {"error":"Unauthorized access"},403
     if problem is None:
         return {"error":"id doesnt exist"},404 
     if data['solved'] == problem.solved:
@@ -147,10 +167,13 @@ def mark_solved(id):
         }),200
 
 @app.route('/problems/<int:id>',methods=['DELETE'])
-@login_required
+@jwt_required()
 def delete_problem(id):
     statement=db.select(PROBLEMS).filter_by(id=id)
     problem=db.session.execute(statement).scalar_one_or_none()
+    current_user_id=get_jwt_identity()
+    if int(current_user_id) != problem.user_id:
+        return {"error":"Unauthorized access"},403
     if problem is None:
         return {"error":"invalid id"},404
     db.session.delete(problem)
@@ -158,13 +181,16 @@ def delete_problem(id):
     return {"message":"problem delete succesfully"},200
 
 @app.route('/users/<int:id>/problems',methods=['GET'])
-@login_required
+@jwt_required()
 def filtering_and_view_all_problems(id):
     min_rating= int(request.args.get('minrating'))
     max_rating= int(request.args.get('maxrating'))
     tag= request.args.get('tag')
     status= request.args.get('status')
     statement=db.select(PROBLEMS).filter_by(user_id=id)
+    current_user_id=get_jwt_identity()
+    if int(current_user_id) != id:
+        return {"error":"Unauthorized access"},403   
     if tag is not None:
         statement=statement.filter_by(tag=tag)
     if status is not None:
@@ -188,8 +214,11 @@ def filtering_and_view_all_problems(id):
     return data, 200
 
 @app.route('/users/<int:id>/stats',methods=['GET'])
-@login_required
+@jwt_required()
 def stats(id):
+    current_user_id=get_jwt_identity()
+    if int(current_user_id) != id:
+        return {"error":"Unauthorized access"},403   
     statement=db.select(PROBLEMS.rating,db.func.count(PROBLEMS.id).label('total'),
                         db.func.sum(db.case((PROBLEMS.solved == True, 1), else_=0)).label('solved')
                         ).where(PROBLEMS.user_id==id).group_by(PROBLEMS.rating)
