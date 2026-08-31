@@ -50,8 +50,10 @@ def revoked_token_callback(jwt_header, jwt_payload):
 @app.route('/signin',methods=['POST'])
 def signin():
     data=request.get_json()
-    username=data["username"]
-    password=data["password"]
+    username=data.get("username")
+    password=data.get("password")
+    if username is None or password is None:
+        return {"error": "missing required fields"}, 400
     hash_password=generate_password_hash(password,method='pbkdf2:sha256')
     statement=db.select(USER).filter_by(username=username)
     check=db.session.execute(statement).scalar_one_or_none()
@@ -67,26 +69,25 @@ def signin():
 @app.route('/login',methods=['POST'])
 def login():
     data=request.get_json()
-    username=data["username"]
-    password=data["password"]
+    username=data.get("username")
+    password=data.get("password")
+    if username is None or password is None:
+        return {"error": "missing required fields"}, 400
     statement=db.select(USER).filter_by(username=username)
     user=db.session.execute(statement).scalar_one_or_none()
-    # current_user_id=get_jwt_identity()
-    # if int(current_user_id) != user.user_id:
-    #     return {"error":"Unauthorized access"},403
     if user is not None:
         if check_password_hash(user.password,password):
             access_token=create_access_token(identity=str(user.id))
             return {"Token": access_token} , 200
     return {"error":"password or username wrong"}, 401
 
-#kinda broken right now , fix later after studying auth 
-#login_required works!!
 @app.route('/logout',methods=['POST'])
 @jwt_required()
 def logout():
     data=request.get_json()
-    check=data["logout"]
+    check=data.get("logout")
+    if check is None:
+        return {"error": "missing required fields"}, 400
     if check=='yes':
         jti=get_jwt()['jti']
         expire_token=TOKEN_BLOCKLIST(jti=jti)
@@ -99,10 +100,12 @@ def logout():
 @jwt_required()
 def log_problem(id):
     data=request.get_json()
-    title=data["title"]
-    rating=data["rating"]
-    tag=data["tag"]
-    solved=data["solved"]
+    title=data.get("title")
+    rating=data.get("rating")
+    tag=data.get("tag")
+    solved=data.get("solved")
+    if not title or rating is None or not tag or solved is None:
+        return {"error": "missing required fields"}, 400
     is_solved=False
     if solved:
         is_solved=True
@@ -117,18 +120,21 @@ def log_problem(id):
 @app.route('/problems/<int:id>',methods=['PUT'])
 @jwt_required()
 def update_problem(id):
+    ALLOWED_FIELDS = {"title", "rating", "tag", "solved"}
     data=request.get_json()
     statement=db.select(PROBLEMS).filter_by(id=id)
     problem=db.session.execute(statement).scalar_one_or_none()
     current_user_id=get_jwt_identity()
+    if problem is None:
+        return {"error":"problem doesnt exist"}, 404
     if int(current_user_id) != problem.user_id:
         return {"error":"Unauthorized access"},403
-    if problem is not None:
-        for x in data:
+    for x in data:
+        if x in ALLOWED_FIELDS:
             setattr(problem, x, data[x])
-        db.session.commit()
-        return {"message":"succesfully updated"}, 200
-    return {"error":"problem doesnt exist"}, 404
+    db.session.commit()
+    return {"message":"succesfully updated"}, 200
+    
 
 @app.route('/problems/<int:id>',methods=['GET'])
 @jwt_required()
@@ -136,10 +142,10 @@ def view_single_problem(id):
     statement=db.select(PROBLEMS).filter_by(id=id)
     problem=db.session.execute(statement).scalar_one_or_none()
     current_user_id=get_jwt_identity()
-    if int(current_user_id) != problem.user_id:
-        return {"error":"Unauthorized access"},403
     if problem is None:
         return {"error":"Problem Doesnt exist"}, 404
+    if int(current_user_id) != problem.user_id:
+        return {"error":"Unauthorized access"},403
     return jsonify({
             "id":problem.id,
             "title":problem.title,
@@ -155,13 +161,13 @@ def mark_solved(id):
     statement=db.select(PROBLEMS).filter_by(id=id)
     problem=db.session.execute(statement).scalar_one_or_none()
     current_user_id=get_jwt_identity()
-    if int(current_user_id) != problem.user_id:
-        return {"error":"Unauthorized access"},403
     if problem is None:
         return {"error":"id doesnt exist"},404 
-    if data['solved'] == problem.solved:
-        return{"message":"there were no changes"},204
-    solved=data['solved']
+    if int(current_user_id) != problem.user_id:
+        return {"error":"Unauthorized access"},403
+    solved=data.get('solved')
+    if solved is None:
+        return {"error": "missing required fields"}, 400
     is_solved=False
     if solved:
         is_solved=True
@@ -181,10 +187,10 @@ def delete_problem(id):
     statement=db.select(PROBLEMS).filter_by(id=id)
     problem=db.session.execute(statement).scalar_one_or_none()
     current_user_id=get_jwt_identity()
-    if int(current_user_id) != problem.user_id:
-        return {"error":"Unauthorized access"},403
     if problem is None:
         return {"error":"invalid id"},404
+    if int(current_user_id) != problem.user_id:
+        return {"error":"Unauthorized access"},403
     db.session.delete(problem)
     db.session.commit()
     return {"message":"problem delete succesfully"},200
@@ -192,22 +198,22 @@ def delete_problem(id):
 @app.route('/users/<int:id>/problems',methods=['GET'])
 @jwt_required()
 def filtering_and_view_all_problems(id):
-    min_rating= int(request.args.get('minrating'))
-    max_rating= int(request.args.get('maxrating'))
-    tag= request.args.get('tag')
-    status= request.args.get('status')
-    statement=db.select(PROBLEMS).filter_by(user_id=id)
     current_user_id=get_jwt_identity()
     if int(current_user_id) != id:
         return {"error":"Unauthorized access"},403   
+    min_rating= request.args.get('minrating')
+    max_rating= request.args.get('maxrating')
+    tag= request.args.get('tag')
+    status= request.args.get('status')
+    statement=db.select(PROBLEMS).filter_by(user_id=id)
     if tag is not None:
         statement=statement.filter_by(tag=tag)
     if status is not None:
         statement=statement.filter_by(solved=(status=='solved'))
     if min_rating is not None:
-        statement=statement.where(PROBLEMS.rating>=min_rating)
+        statement=statement.where(PROBLEMS.rating>=int(min_rating))
     if max_rating is not None:
-        statement=statement.where(PROBLEMS.rating<=max_rating)
+        statement=statement.where(PROBLEMS.rating<=int(max_rating))
     problems=db.session.execute(statement).scalars().all()
     if not problems:
         return {"message": "no problem exist of this tag"} ,204
