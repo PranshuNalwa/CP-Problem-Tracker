@@ -32,10 +32,9 @@ def filtering_and_view_all_problems(id):
     min_rating= request.args.get('minrating')
     max_rating= request.args.get('maxrating')
     tag= request.args.get('tag')
+
     status= request.args.get('status')
     statement=db.select(PROBLEMS).filter_by(user_id=id)
-    if tag is not None:
-        statement=statement.filter_by(tag=tag)
     if status is not None:
         statement=statement.filter_by(solved=(status=='solved'))
     if min_rating is not None:
@@ -46,14 +45,46 @@ def filtering_and_view_all_problems(id):
     if not problems:
         return {"message": "no problem exist of this tag"} ,204
     data=[]
-    for problem in problems:
-        data.append({
-            "id":problem.id,
-            "title":problem.title,
-            "rating":problem.rating,
-            "tag":problem.tag,
-            "solved":problem.solved
-        })
+    tag_list=[]
+    tag_set=set()
+    if tag is not None:
+        c=0
+        s=""
+        for t in tag:
+            if t == '"':
+                if c == 0:
+                    c = 1 
+                else:
+                    c = 0  
+                    print(s)
+                    tag_list.append(s)
+                    s = "" 
+            elif c == 1:
+                s += t
+
+        for t in tag_list:
+            #print(t)
+            tag_set.add(t)
+        for problem in problems:
+            for t in tag_set:
+                if t in problem.tag:
+                    data.append({
+                                    "id":problem.id,
+                                    "title":problem.title,
+                                    "rating":problem.rating,
+                                    "tag":problem.tag,
+                                    "solved":problem.solved
+                                })
+                break
+    else:       
+        for problem in problems:
+            data.append({
+                "id":problem.id,
+                "title":problem.title,
+                "rating":problem.rating,
+                "tag":problem.tag,
+                "solved":problem.solved
+            })
     return data, 200
 
 @view_problems.route('/users/<int:id>/stats',methods=['GET'])

@@ -6,19 +6,19 @@ from CP import db,jwt
 
 users=Blueprint("users",__name__)
 
-# @users.route('/')
 @users.route('/signin',methods=['POST'])
 def signin():
     data=request.get_json()
     username=data.get("username")
     password=data.get("password")
-    if username is None or password is None:
+    cf_username=data.get("cf_username")
+    if username is None or password is None or cf_username is None:
         return {"error": "missing required fields"}, 400
     hash_password=generate_password_hash(password,method='pbkdf2:sha256')
     statement=db.select(USER).filter_by(username=username)
     check=db.session.execute(statement).scalar_one_or_none()
     if check is None:
-        user=USER(username=username,password=hash_password)
+        user=USER(username=username,password=hash_password,cf_username=cf_username)
         db.session.add(user)
         db.session.commit()
         access_token=create_access_token(identity=str(user.id))
@@ -44,14 +44,8 @@ def login():
 @users.route('/logout',methods=['POST'])
 @jwt_required()
 def logout():
-    data=request.get_json()
-    check=data.get("logout")
-    if check is None:
-        return {"error": "missing required fields"}, 400
-    if check=='yes':
-        jti=get_jwt()['jti']
-        expire_token=TOKEN_BLOCKLIST(jti=jti)
-        db.session.add(expire_token)
-        db.session.commit()
-        return {"message":"logout succesful"}, 200
-    return {"login not done"}
+    jti=get_jwt()['jti']
+    expire_token=TOKEN_BLOCKLIST(jti=jti)
+    db.session.add(expire_token)
+    db.session.commit()
+    return {"message":"logout succesful"}, 200

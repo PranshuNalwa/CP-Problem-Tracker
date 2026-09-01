@@ -4,14 +4,16 @@ class USER(db.Model):
     id=db.Column(db.Integer,primary_key=True)
     username = db.Column(db.String(20), unique=True, nullable=False)
     password = db.Column(db.String(60), nullable=False)
+    cf_username=db.Column(db.String(20), unique=True, nullable=False)
     problems = db.relationship('PROBLEMS',backref="author",lazy=True)
 
 class PROBLEMS(db.Model):
     id=db.Column(db.Integer,primary_key=True)
     user_id=db.Column(db.Integer,db.ForeignKey('user.id'),nullable=False)
+    c_id=db.Column(db.String(40),unique=True, nullable=False)
     title= db.Column(db.String(20), nullable=False)
     rating= db.Column(db.Integer,nullable=False)
-    tag=db.Column(db.String(20), nullable=False)
+    tag=db.Column(db.JSON)
     solved=db.Column(db.Boolean, nullable=False)
 
 class TOKEN_BLOCKLIST(db.Model):
